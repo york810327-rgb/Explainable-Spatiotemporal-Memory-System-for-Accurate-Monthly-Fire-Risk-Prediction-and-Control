@@ -1,0 +1,2 @@
+model,protocol,train_years,validation_year,n_train,n_validation,n_features,validation_positive_rate,validation_auprc,validation_roc_auc,validation_brier,C,class_weight,sample_weight
+Logistic-L2,P1_time_holdout,2015-2021,2022,218290,31560,84,0.00494296577946768,0.2099838024030927,0.9155588949962278,0.004373762933726383,1.0,none,none
