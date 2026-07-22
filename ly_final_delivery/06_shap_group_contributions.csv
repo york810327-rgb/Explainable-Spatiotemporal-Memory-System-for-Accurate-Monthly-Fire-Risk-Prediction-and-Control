@@ -1,0 +1,6 @@
+feature_group,mean_abs_shap_sum
+Fire history,0.16995308149901758
+Drought / moisture,0.5909571648878608
+Wind,0.3001731161406971
+Vegetation,0.9086706843729478
+Topography / human,1.4829179407499575
