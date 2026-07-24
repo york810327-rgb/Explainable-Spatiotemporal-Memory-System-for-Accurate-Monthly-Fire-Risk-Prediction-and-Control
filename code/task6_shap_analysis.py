@@ -26,7 +26,7 @@ from sklearn.preprocessing import StandardScaler
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 ROOT = Path(__file__).resolve().parent
-OUT = ROOT / "ly_final_delivery"
+OUT = ROOT / "results"
 OUT.mkdir(exist_ok=True)
 SEED = 20260721
 TOP_FRACTIONS = (0.01, 0.05, 0.10)
