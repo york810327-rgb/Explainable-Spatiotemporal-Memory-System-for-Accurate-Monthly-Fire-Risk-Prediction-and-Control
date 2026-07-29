@@ -1,0 +1,4 @@
+feature,P10_value,P90_value,mean_SHAP_low_decile,mean_SHAP_high_decile,high_minus_low_SHAP
+months_since_last_fire,37.00000000,120.00000000,0.53599173,-0.10523631,-0.64122804
+VPD_mean_mon_lag1_roll3m_mean,0.14663004,1.18508621,0.41672700,0.08745018,-0.32927682
+P_sum_mon_lag1_roll3m_sum,13.18234348,451.34489440,-0.06868113,-0.67897079,-0.61028966

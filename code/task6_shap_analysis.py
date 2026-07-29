@@ -1,291 +1,608 @@
-"""Final LY deliverable: strict P1 evaluation, P3 generalization and SHAP.
+"""Regenerate the requested comparison, P3, and BIOME-specific SHAP figures.
 
-Run from the project folder with the geo-ebm Conda environment:
-    python run_ly_analysis.py
+This script deliberately reuses the fitted P1 model and the already-produced
+metric tables. It does not retrain models and it does not download data.
 
-P1 protocol: train 2015-2021, validation 2022, test 2023-2024.
-No cell/grid IDs, BIOME, STRATUM, dates, labels or sampling weights are model inputs.
+Inputs
+------
+SCI/data/01_p1_high_metrics.csv
+SCI/data/03_official_p1_p3_multiscale_metrics.csv
+SCI/results/p1_lgbm_strict_model.joblib
+SCI/data/p3_weight_dataset.parquet
+SCI/data/full_features.csv
+
+Generated CSV tables are written to SCI/data/. Generated figures are written
+to SCI/results/.
 """
+
+from __future__ import annotations
+
 from pathlib import Path
-import json
 import warnings
 
 import joblib
-import lightgbm as lgb
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression, SGDClassifier
-from sklearn.metrics import (average_precision_score, brier_score_loss, f1_score,
-                             precision_score, recall_score, roc_auc_score)
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-
-warnings.filterwarnings("ignore", category=FutureWarning)
-ROOT = Path(__file__).resolve().parent
-OUT = ROOT / "results"
-OUT.mkdir(exist_ok=True)
-SEED = 20260721
-TOP_FRACTIONS = (0.01, 0.05, 0.10)
-sns.set_theme(style="whitegrid", context="talk")
+from sklearn.metrics import (
+    average_precision_score,
+    brier_score_loss,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 
 
-def choose_f1_threshold(y, p):
-    """Choose operating threshold only on validation data, never on test data."""
-    candidates = np.unique(np.quantile(p, np.linspace(.01, .99, 199)))
-    f1s = [f1_score(y, p >= t, zero_division=0) for t in candidates]
-    return float(candidates[int(np.argmax(f1s))])
+ROOT = Path(__file__).resolve().parents[1]
+DATA = ROOT / "data"
+RESULTS = ROOT / "results"
+RESULTS.mkdir(parents=True, exist_ok=True)
 
+SEED = 20260729
+MODEL_PATH = RESULTS / "p1_lgbm_strict_model.joblib"
+DATA_PATH = DATA / "p3_weight_dataset.parquet"
+FEATURE_PATH = DATA / "full_features.csv"
+P1_METRICS_PATH = DATA / "01_p1_high_metrics.csv"
+P3_METRICS_PATH = DATA / "03_official_p1_p3_multiscale_metrics.csv"
 
-def metric_row(y, p, threshold):
-    pred = p >= threshold
-    row = {
-        "AUPRC": average_precision_score(y, p),
-        "ROC-AUC": roc_auc_score(y, p),
-        "Brier score": brier_score_loss(y, p),
-        "F1": f1_score(y, pred, zero_division=0),
-        "Precision": precision_score(y, pred, zero_division=0),
-        "Recall": recall_score(y, pred, zero_division=0),
-        "Threshold (validation-selected)": threshold,
+MODEL_ORDER = [
+    "LightGBM (depth-capped)",
+    "Logistic L2 baseline",
+    "Logistic L1 baseline",
+    "ElasticNet baseline",
+]
+MODEL_LABELS = {
+    "LightGBM (depth-capped)": "LightGBM",
+    "Logistic L2 baseline": "Logistic L2",
+    "Logistic L1 baseline": "Logistic L1",
+    "ElasticNet baseline": "ElasticNet",
+}
+COLORS = {
+    "LightGBM (depth-capped)": "#087E8B",
+    "Logistic L2 baseline": "#F4A261",
+    "Logistic L1 baseline": "#8D6A9F",
+    "ElasticNet baseline": "#C8553D",
+}
+
+BIOME_NAMES = {
+    1: ("Tropical & Subtropical Moist Broadleaf Forests", "TSMBF"),
+    4: ("Temperate Broadleaf & Mixed Forests", "TBMF"),
+    5: ("Temperate Conifer Forests", "TCF"),
+    6: ("Boreal Forests / Taiga", "BFT"),
+    8: ("Temperate Grasslands, Savannas & Shrublands", "TGSS"),
+    9: ("Flooded Grasslands & Savannas", "FGS"),
+    10: ("Montane Grasslands & Shrublands", "MGS"),
+    11: ("Unclassified / N/A", "N/A"),
+    13: ("Deserts & Xeric Shrublands", "DXS"),
+}
+
+FEATURE_GROUPS = {
+    "Fire history": [
+        "y_lag1",
+        "y_lag12",
+        "fire_count_12m",
+        "months_since_last_fire",
+    ],
+    "Drought / moisture": [
+        "PET_sum_mon_lag1",
+        "P_sum_mon_lag1",
+        "VPD_mean_mon_lag1",
+        "VPD_mean_mon_lag1_roll3m_mean",
+        "SM1_mean_mon_lag1",
+        "RH_mean_mon_lag1",
+    ],
+    "Wind": [
+        "WD_R_mon_lag1",
+        "WD_u_mon_lag1",
+        "WD_v_mon_lag1",
+        "WS_max_mon_lag1",
+        "WS_mean_mon_lag1",
+        "WS_strong_frac_lag1",
+    ],
+    "Vegetation": [
+        "NDVI_mean_mon_lag1",
+        "EVI_mean_mon_lag1",
+        "treecover_2015",
+        "frac_forest",
+    ],
+}
+
+sns.set_theme(style="whitegrid", context="notebook")
+plt.rcParams.update(
+    {
+        "figure.dpi": 130,
+        "savefig.dpi": 300,
+        "axes.titleweight": "bold",
+        "axes.labelsize": 10,
+        "axes.titlesize": 11,
+        "legend.fontsize": 8,
     }
-    order = np.argsort(-p, kind="stable")
-    for fraction in TOP_FRACTIONS:
-        k = max(1, int(np.ceil(len(y) * fraction)))
-        top_y = np.asarray(y)[order[:k]]
-        tag = f"Top-{int(fraction*100)}%"
-        row[f"{tag} precision"] = top_y.mean()
-        row[f"{tag} recall"] = top_y.sum() / max(1, np.asarray(y).sum())
-        row[f"{tag} hits"] = int(top_y.sum())
-    return row
+)
 
 
-def bootstrap_std(y, p, threshold, n_boot=100):
-    """Bootstrap test-set uncertainty; fixed seed makes the output reproducible."""
+def _save(fig: plt.Figure, filename: str) -> None:
+    fig.savefig(RESULTS / filename, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+
+def plot_tree_vs_baselines() -> pd.DataFrame:
+    metrics = pd.read_csv(P1_METRICS_PATH)
+    metrics["Model"] = pd.Categorical(
+        metrics["Model"], categories=MODEL_ORDER, ordered=True
+    )
+    metrics = metrics.sort_values("Model").dropna(subset=["Model"]).copy()
+
+    specs = [
+        ("AUPRC", "higher is better"),
+        ("ROC-AUC", "higher is better"),
+        ("F1", "higher is better"),
+        ("Brier score", "lower is better"),
+    ]
+    fig, axes = plt.subplots(1, 4, figsize=(14.2, 4.3))
+    for ax, (metric, direction) in zip(axes, specs):
+        values = metrics[metric].astype(float).to_numpy()
+        names = metrics["Model"].astype(str).tolist()
+        bars = ax.bar(
+            range(len(metrics)),
+            values,
+            color=[COLORS[name] for name in names],
+            width=0.68,
+        )
+        pad = max(values.max() * 0.035, 0.002)
+        for bar, value in zip(bars, values):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                value + pad,
+                f"{value:.3f}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
+        ax.set_title(f"{metric}\n{direction}", fontsize=10)
+        ax.set_xticks(range(len(metrics)))
+        ax.set_xticklabels(
+            [MODEL_LABELS[name] for name in names], rotation=32, ha="right"
+        )
+        ax.set_ylim(0, values.max() * 1.18)
+        ax.grid(axis="x", visible=False)
+        ax.set_ylabel("Test score")
+
+    fig.suptitle(
+        "P1 time extrapolation (train 2015–2021, validation 2022, test 2023–2024)",
+        fontsize=14,
+        fontweight="bold",
+        y=1.03,
+    )
+    fig.text(
+        0.5,
+        -0.04,
+        "LightGBM leads on ranking and threshold metrics; its class-weighted probabilities "
+        "have a higher (worse) Brier score than the linear baselines.",
+        ha="center",
+        fontsize=9,
+        color="#444444",
+    )
+    fig.tight_layout()
+    _save(fig, "02_p1_tree_vs_baselines.png")
+    return metrics
+
+
+def plot_p3_generalization_gap() -> pd.DataFrame:
+    raw = pd.read_csv(P3_METRICS_PATH)
+    p1 = raw.loc[raw["Protocol"].astype(str).str.lower().eq("p1")].iloc[0]
+    p3 = raw.loc[
+        raw["Protocol"].astype(str).str.contains(r"p3_\d+km", regex=True)
+    ].copy()
+    p3["Scale_km"] = (
+        p3["Protocol"].astype(str).str.extract(r"p3_(\d+)km")[0].astype(int)
+    )
+    p3 = p3.sort_values("Scale_km")
+
+    metric_specs = [
+        ("AUPRC", "AUPRC", True),
+        ("ROC-AUC", "ROC-AUC", True),
+        ("Brier_Score", "Brier score", False),
+    ]
+    gap_rows = []
+    for col, label, higher_better in metric_specs:
+        for _, row in p3.iterrows():
+            raw_delta = float(row[col] - p1[col])
+            gap_rows.append(
+                {
+                    "Scale_km": int(row["Scale_km"]),
+                    "Metric": label,
+                    "P1_reference": float(p1[col]),
+                    "P3_score": float(row[col]),
+                    "P3_minus_P1": raw_delta,
+                    "performance_change_vs_P1": (
+                        raw_delta if higher_better else -raw_delta
+                    ),
+                }
+            )
+    gaps = pd.DataFrame(gap_rows)
+    gaps.to_csv(
+        DATA / "03_p3_generalization_gap.csv",
+        index=False,
+        float_format="%.6f",
+    )
+
+    fig, axes = plt.subplots(1, 3, figsize=(14.2, 4.5))
+    scales = p3["Scale_km"].to_numpy()
+    for ax, (col, label, higher_better) in zip(axes, metric_specs):
+        scores = p3[col].astype(float).to_numpy()
+        reference = float(p1[col])
+        ax.plot(scales, scores, marker="o", lw=2.4, color="#C14924")
+        ax.axhline(reference, ls="--", lw=1.8, color="#2A6FBB", label="P1 reference")
+        for x, score in zip(scales, scores):
+            delta = score - reference
+            perf_delta = delta if higher_better else -delta
+            ax.annotate(
+                f"{score:.4f}\nΔperf {perf_delta:+.4f}",
+                (x, score),
+                xytext=(0, 9 if score >= reference else -28),
+                textcoords="offset points",
+                ha="center",
+                fontsize=8,
+            )
+        values = np.r_[scores, reference]
+        spread = max(values.max() - values.min(), 0.001)
+        ax.set_ylim(values.min() - 0.22 * spread, values.max() + 0.25 * spread)
+        ax.set_title(f"{label}\n({'higher' if higher_better else 'lower'} is better)")
+        ax.set_xlabel("Spatial blocking scale (km)")
+        ax.set_xticks(scales)
+        ax.set_ylabel("Score")
+        ax.legend(loc="best")
+
+    fig.suptitle(
+        "P3 spatial generalization: score and performance change relative to P1",
+        fontsize=14,
+        fontweight="bold",
+        y=1.04,
+    )
+    fig.text(
+        0.5,
+        -0.035,
+        "AUPRC remains below P1 at every scale, but improves from 10 km to 100 km; "
+        "there is no monotonic cross-scale degradation in the available results.",
+        ha="center",
+        fontsize=9,
+        color="#444444",
+    )
+    fig.tight_layout()
+    _save(fig, "03_p3_multiscale_degradation.png")
+    return gaps
+
+
+def _model_inputs() -> tuple[object, pd.DataFrame, list[str], pd.Series]:
+    model = joblib.load(MODEL_PATH)
+    features = pd.read_csv(FEATURE_PATH)["feature"].astype(str).tolist()
+    required = list(dict.fromkeys(features + ["date", "y", "BIOME"]))
+    df = pd.read_parquet(DATA_PATH, columns=required)
+    year = pd.to_datetime(df["date"]).dt.year
+    test = year >= 2023
+    x_test = df.loc[test, features].replace([np.inf, -np.inf], np.nan)
+    meta = df.loc[test, ["BIOME", "y"]].copy()
+
+    if getattr(model, "n_features_in_", len(features)) != len(features):
+        raise ValueError(
+            f"Model expects {model.n_features_in_} features, but {FEATURE_PATH.name} "
+            f"contains {len(features)}."
+        )
+    if len(x_test) != len(meta):
+        raise AssertionError("Test feature and metadata rows are misaligned.")
+    return model, x_test, features, meta
+
+
+def _group_indices(features: list[str]) -> dict[str, list[int]]:
+    indices = {
+        group: [features.index(name) for name in names if name in features]
+        for group, names in FEATURE_GROUPS.items()
+    }
+    missing_groups = [group for group, idx in indices.items() if not idx]
+    if missing_groups:
+        raise ValueError(f"No model features found for groups: {missing_groups}")
+    return indices
+
+
+def plot_global_shap_and_dependence(
+    model: object, x_test: pd.DataFrame, features: list[str]
+) -> None:
     rng = np.random.default_rng(SEED)
-    y = np.asarray(y); p = np.asarray(p)
-    rows = []
-    for _ in range(n_boot):
-        ind = rng.integers(0, len(y), len(y))
-        # Resample until both labels are present; needed for ROC-AUC.
-        if np.unique(y[ind]).size < 2:
-            continue
-        rows.append(metric_row(y[ind], p[ind], threshold))
-    boot = pd.DataFrame(rows)
-    return boot.mean(numeric_only=True).add_suffix(" mean (bootstrap)"), boot.std(numeric_only=True, ddof=1).add_suffix(" std (bootstrap)")
-
-
-def make_linear_model(features, penalty, c=0.1, l1_ratio=None):
-    # Solver choice is deliberate: full P1 has ~250k training records; saga is
-    # required only for ElasticNet and is unnecessarily slow for pure L1/L2.
-    if penalty == "elasticnet":
-        classifier = SGDClassifier(loss="log_loss", penalty="elasticnet", alpha=1e-4,
-                                   l1_ratio=l1_ratio, max_iter=1200, tol=1e-3,
-                                   random_state=SEED, early_stopping=True,
-                                   validation_fraction=.1, n_iter_no_change=8)
-        return Pipeline([
-            ("preprocess", ColumnTransformer([
-                ("numeric", Pipeline([
-                    ("impute", SimpleImputer(strategy="median")),
-                    ("scale", StandardScaler()),
-                ]), features)
-            ])),
-            ("model", classifier),
-        ])
-    solver = {"l2": "lbfgs", "l1": "liblinear"}[penalty]
-    kwargs = dict(penalty=penalty, C=c, solver=solver, max_iter=500,
-                  tol=1e-3, random_state=SEED)
-    if l1_ratio is not None:
-        kwargs["l1_ratio"] = l1_ratio
-    return Pipeline([
-        ("preprocess", ColumnTransformer([
-            ("numeric", Pipeline([
-                ("impute", SimpleImputer(strategy="median")),
-                ("scale", StandardScaler()),
-            ]), features)
-        ])),
-        ("model", LogisticRegression(**kwargs)),
-    ])
-
-
-def save_metric_table(records):
-    rows = []
-    for name, y, p, threshold in records:
-        direct = pd.Series(metric_row(y, p, threshold))
-        means, stds = bootstrap_std(y, p, threshold)
-        merged = pd.concat([direct, means, stds])
-        merged["Model"] = name
-        merged["Protocol"] = "P1: train 2015-2021; validation 2022; test 2023-2024"
-        rows.append(merged)
-    result = pd.DataFrame(rows)
-    front = ["Model", "Protocol", "AUPRC", "ROC-AUC", "Brier score", "F1", "Precision", "Recall",
-             "Top-1% precision", "Top-1% recall", "Top-1% hits", "Top-5% precision", "Top-5% recall", "Top-5% hits",
-             "Top-10% precision", "Top-10% recall", "Top-10% hits", "Threshold (validation-selected)"]
-    result = result[[c for c in front if c in result] + [c for c in result if c not in front]]
-    result.to_csv(OUT / "01_p1_high_metrics.csv", index=False, float_format="%.6f")
-    return result
-
-
-def plot_p1_comparison(metrics):
-    display = metrics.melt(id_vars="Model", value_vars=["AUPRC", "ROC-AUC", "Brier score", "F1"],
-                           var_name="Metric", value_name="Value")
-    fig, ax = plt.subplots(figsize=(15, 6.5))
-    sns.barplot(data=display, x="Metric", y="Value", hue="Model", ax=ax,
-                palette=["#157f7b", "#e68a2e", "#9270ad", "#b1492f"])
-    ax.set_title("P1 time-extrapolation: tree model versus linear baselines")
-    ax.set_ylim(0, 1.05); ax.set_ylabel("Score")
-    ax.legend(title="Model", fontsize=10)
-    fig.tight_layout(); fig.savefig(OUT / "02_p1_tree_vs_baselines.png", dpi=260); plt.close(fig)
-
-
-def plot_p3_scales():
-    p1 = pd.read_csv(ROOT / "lgbm_p1_metrics.csv")
-    p3 = pd.concat([pd.read_csv(p) for p in sorted(ROOT.glob("lgbm_p3_*km_metrics.csv"))], ignore_index=True)
-    p3["Scale (km)"] = p3["Protocol"].str.extract(r"p3_(\d+)km").astype(int)
-    combined = pd.concat([p1.assign(Scale="P1"), p3.assign(Scale=p3["Scale (km)"])], ignore_index=True)
-    combined.to_csv(OUT / "03_official_p1_p3_multiscale_metrics.csv", index=False, float_format="%.6f")
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
-    for ax, metric in zip(axes, ["AUPRC", "ROC-AUC", "Brier_Score"]):
-        sp = p3.sort_values("Scale (km)")
-        ax.plot(sp["Scale (km)"], sp[metric], marker="o", lw=2.5, color="#b1492f")
-        for _, r in sp.iterrows():
-            ax.annotate(f"{r[metric]:.3f}", (r["Scale (km)"], r[metric]), xytext=(0, 8),
-                        textcoords="offset points", ha="center", fontsize=10)
-        ax.axhline(float(p1[metric].iloc[0]), ls="--", color="#276fbf", label="P1 reference")
-        ax.set_title(metric); ax.set_xlabel("Spatial blocking scale (km)"); ax.legend(fontsize=9)
-    fig.suptitle("P3 spatial generalization across blocking scales", y=1.03)
-    fig.tight_layout(); fig.savefig(OUT / "03_p3_multiscale_degradation.png", dpi=260, bbox_inches="tight"); plt.close(fig)
-    return p1, p3
-
-
-def shap_outputs(tree, x_test, features):
-    rng = np.random.default_rng(SEED)
-    ix = rng.choice(len(x_test), size=min(3000, len(x_test)), replace=False)
-    xs = x_test.iloc[ix].copy()
-    contrib = tree.predict(xs, pred_contrib=True)[:, :-1]
-    mean_abs = np.abs(contrib).mean(axis=0)
+    n = min(3000, len(x_test))
+    sample_pos = rng.choice(len(x_test), size=n, replace=False)
+    xs = x_test.iloc[sample_pos].copy()
+    shap_values = model.predict(xs, pred_contrib=True)[:, :-1]
+    mean_abs = np.abs(shap_values).mean(axis=0)
     top_idx = np.argsort(mean_abs)[-15:][::-1]
-    top_features = [features[i] for i in top_idx]
-    importance = pd.DataFrame({"feature": top_features, "mean_abs_shap": mean_abs[top_idx]})
-    importance.to_csv(OUT / "04_shap_feature_importance.csv", index=False, float_format="%.8f")
 
-    fig, ax = plt.subplots(figsize=(11, 8))
-    for row, j in enumerate(top_idx):
-        values = xs.iloc[:, j].to_numpy(dtype=float); values = np.nan_to_num(values, nan=np.nanmedian(values))
-        sv = contrib[:, j]; jitter = rng.normal(0, .12, len(sv))
-        lo, hi = np.percentile(values, [2, 98]); color = np.clip((values-lo)/(hi-lo+1e-12), 0, 1)
-        ax.scatter(sv, len(top_idx)-1-row+jitter, c=color, cmap="coolwarm", s=8, alpha=.5, linewidths=0)
-    ax.axvline(0, color="grey", lw=.8); ax.set_yticks(range(len(top_idx))); ax.set_yticklabels(top_features[::-1])
-    ax.set_xlabel("SHAP value (effect on model log-odds)"); ax.set_title("P1 LightGBM SHAP summary (3,000 test observations)")
-    sm = plt.cm.ScalarMappable(cmap="coolwarm", norm=plt.Normalize(0,1)); sm.set_array([])
-    fig.colorbar(sm, ax=ax, label="Feature value (low → high)")
-    fig.tight_layout(); fig.savefig(OUT / "04_shap_beeswarm.png", dpi=260); plt.close(fig)
+    pd.DataFrame(
+        {
+            "feature": [features[i] for i in top_idx],
+            "mean_abs_shap": mean_abs[top_idx],
+        }
+    ).to_csv(
+        DATA / "04_shap_feature_importance.csv",
+        index=False,
+        float_format="%.8f",
+    )
 
-    # Prespecified physical variables make the nonlinear mechanism discussion auditable.
-    dep_features = [f for f in ["months_since_last_fire", "VPD_mean_mon_lag1_roll3m_mean", "P_sum_mon_lag1_roll3m_sum"] if f in features]
-    fig, axes = plt.subplots(1, len(dep_features), figsize=(5.4*len(dep_features), 4.8))
-    if len(dep_features) == 1: axes = [axes]
+    fig, ax = plt.subplots(figsize=(9.5, 7.2))
+    for row, feature_idx in enumerate(top_idx):
+        values = xs.iloc[:, feature_idx].to_numpy(dtype=float)
+        finite = np.isfinite(values)
+        fill = float(np.nanmedian(values[finite])) if finite.any() else 0.0
+        values = np.nan_to_num(values, nan=fill, posinf=fill, neginf=fill)
+        lo, hi = np.percentile(values, [2, 98])
+        color = np.clip((values - lo) / (hi - lo + 1e-12), 0, 1)
+        jitter = rng.normal(0, 0.115, n)
+        ax.scatter(
+            shap_values[:, feature_idx],
+            len(top_idx) - 1 - row + jitter,
+            c=color,
+            cmap="coolwarm",
+            s=8,
+            alpha=0.5,
+            linewidths=0,
+        )
+    ax.axvline(0, color="#777777", lw=0.9)
+    ax.set_yticks(range(len(top_idx)))
+    ax.set_yticklabels([features[i] for i in top_idx][::-1], fontsize=8)
+    ax.set_xlabel("SHAP contribution to model log-odds")
+    ax.set_title("P1 LightGBM global SHAP summary (3,000 test observations)")
+    scalar = plt.cm.ScalarMappable(cmap="coolwarm", norm=plt.Normalize(0, 1))
+    scalar.set_array([])
+    fig.colorbar(scalar, ax=ax, pad=0.02, label="Feature value (low to high)")
+    fig.tight_layout()
+    _save(fig, "04_shap_beeswarm.png")
+
+    selected = [
+        name
+        for name in [
+            "months_since_last_fire",
+            "VPD_mean_mon_lag1_roll3m_mean",
+            "P_sum_mon_lag1_roll3m_sum",
+        ]
+        if name in features
+    ]
+    fig, axes = plt.subplots(1, len(selected), figsize=(5.1 * len(selected), 4.5))
+    axes = np.atleast_1d(axes)
     trigger_rows = []
-    for ax, feature in zip(axes, dep_features):
-        j = features.index(feature); values = xs[feature].to_numpy(dtype=float); sv = contrib[:, j]
-        ax.scatter(values, sv, s=9, alpha=.35, color="#157f7b"); ax.axhline(0, color="grey", lw=.8)
-        ax.set_title(feature); ax.set_xlabel("Feature value"); ax.set_ylabel("SHAP value")
-        q10, q90 = np.nanquantile(values, [.10, .90])
-        low = float(np.nanmean(sv[values <= q10])); high = float(np.nanmean(sv[values >= q90]))
-        trigger_rows.append({"feature": feature, "P10 value": q10, "P90 value": q90,
-                             "mean SHAP at low decile": low, "mean SHAP at high decile": high,
-                             "high_minus_low_SHAP": high-low})
-    fig.suptitle("Nonlinear physical trigger diagnostics", y=1.03)
-    fig.tight_layout(); fig.savefig(OUT / "05_shap_dependence.png", dpi=260, bbox_inches="tight"); plt.close(fig)
-    triggers = pd.DataFrame(trigger_rows)
-    triggers.to_csv(OUT / "05_nonlinear_trigger_summary.csv", index=False, float_format="%.8f")
+    for ax, name in zip(axes, selected):
+        j = features.index(name)
+        x_values = xs[name].to_numpy(dtype=float)
+        y_values = shap_values[:, j]
+        finite = np.isfinite(x_values)
+        ax.scatter(
+            x_values[finite],
+            y_values[finite],
+            s=9,
+            alpha=0.3,
+            color="#087E8B",
+            linewidths=0,
+        )
+        ax.axhline(0, color="#777777", lw=0.9)
+        ax.set_title(name)
+        ax.set_xlabel("Feature value")
+        ax.set_ylabel("SHAP contribution")
+        q10, q90 = np.quantile(x_values[finite], [0.10, 0.90])
+        low = float(y_values[finite & (x_values <= q10)].mean())
+        high = float(y_values[finite & (x_values >= q90)].mean())
+        trigger_rows.append(
+            {
+                "feature": name,
+                "P10_value": q10,
+                "P90_value": q90,
+                "mean_SHAP_low_decile": low,
+                "mean_SHAP_high_decile": high,
+                "high_minus_low_SHAP": high - low,
+            }
+        )
+    fig.suptitle("Nonlinear physical-trigger diagnostics", fontweight="bold")
+    fig.tight_layout()
+    _save(fig, "05_shap_dependence.png")
+    pd.DataFrame(trigger_rows).to_csv(
+        DATA / "05_nonlinear_trigger_summary.csv",
+        index=False,
+        float_format="%.8f",
+    )
 
-    groups = {
-        "Fire history": ["y_lag1", "y_lag12", "fire_count_12m", "months_since_last_fire"],
-        "Drought / moisture": ["PET_sum_mon_lag1", "P_sum_mon_lag1", "VPD_mean_mon_lag1", "VPD_mean_mon_lag1_roll3m_mean", "SM1_mean_mon_lag1", "RH_mean_mon_lag1"],
-        "Wind": ["WD_R_mon_lag1", "WD_u_mon_lag1", "WD_v_mon_lag1", "WS_max_mon_lag1", "WS_mean_mon_lag1", "WS_strong_frac_lag1"],
-        "Vegetation": ["NDVI_mean_mon_lag1", "EVI_mean_mon_lag1", "treecover_2015", "frac_forest"],
-        "Topography / human": ["elev_mean", "slope_mean", "dist_built_m", "frac_crop", "BUILT_mean"],
-    }
-    group_values = {group: float(sum(mean_abs[features.index(f)] for f in fs if f in features)) for group, fs in groups.items()}
-    pd.DataFrame({"feature_group": group_values.keys(), "mean_abs_shap_sum": group_values.values()}).to_csv(OUT / "06_shap_group_contributions.csv", index=False)
-    labels = list(group_values); values = np.array(list(group_values.values())); values = values / values.max()
-    theta = np.linspace(0, 2*np.pi, len(labels), endpoint=False)
-    fig, ax = plt.subplots(figsize=(8,8), subplot_kw={"polar": True})
-    ax.plot(np.r_[theta, theta[0]], np.r_[values, values[0]], color="#b1492f", lw=2.5)
-    ax.fill(np.r_[theta, theta[0]], np.r_[values, values[0]], color="#b1492f", alpha=.22)
-    ax.set_xticks(theta); ax.set_xticklabels(labels, fontsize=10); ax.set_yticklabels([]); ax.set_title("P1 grouped SHAP contribution", pad=24)
-    fig.tight_layout(); fig.savefig(OUT / "06_shap_physical_driver_radar.png", dpi=260); plt.close(fig)
-    return importance, triggers, group_values
+
+def _top_fraction_metrics(y: np.ndarray, p: np.ndarray, fraction: float) -> tuple[float, float]:
+    if y.sum() == 0:
+        return 0.0, np.nan
+    k = max(1, int(np.ceil(len(y) * fraction)))
+    top_y = y[np.argsort(-p, kind="stable")[:k]]
+    return float(top_y.mean()), float(top_y.sum() / max(1, y.sum()))
 
 
-def main():
-    df = pd.read_parquet(ROOT / "p3_weight_dataset.parquet")
-    df["year"] = pd.to_datetime(df["date"]).dt.year
-    features = pd.read_csv(ROOT / "full_features.csv")["feature"].tolist()
-    assert set(features).issubset(df.columns)
-    x = df[features].replace([np.inf, -np.inf], np.nan); y = df["y"].astype(int)
-    train = df.year <= 2021; val = df.year == 2022; test = df.year >= 2023
-    assert train.any() and val.any() and test.any()
-    xtr, xv, xt = x.loc[train], x.loc[val], x.loc[test]
-    ytr, yv, yt = y.loc[train], y.loc[val], y.loc[test]
+def plot_biome_shap(
+    model: object,
+    x_test: pd.DataFrame,
+    features: list[str],
+    meta: pd.DataFrame,
+    threshold: float,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    rng = np.random.default_rng(SEED)
+    group_indices = _group_indices(features)
+    contribution_rows = []
+    performance_rows = []
 
-    # Match the supplied P1 model family: balanced classes, depth capped at 5,
-    # 500 trees and no test-set-driven tuning.  An earlier early-stopping trial
-    # stopped at one tree on the highly imbalanced 2022 validation year, which is
-    # not a meaningful fitted model.
-    tree = lgb.LGBMClassifier(objective="binary", n_estimators=500, learning_rate=.03,
-        num_leaves=31, max_depth=5, min_child_samples=20, colsample_bytree=.8,
-        subsample=.8, class_weight="balanced", random_state=42, n_jobs=-1, verbosity=-1)
-    tree.fit(xtr, ytr)
-    joblib.dump(tree, OUT / "p1_lgbm_strict_model.joblib")
+    for biome in sorted(meta["BIOME"].dropna().astype(int).unique()):
+        mask = meta["BIOME"].astype("Int64").eq(biome).to_numpy(dtype=bool)
+        positions = np.flatnonzero(mask)
+        if not len(positions):
+            continue
 
-    models = [("LightGBM (depth-capped)", tree)]
-    for name, penalty, ratio in [("Logistic L2 baseline", "l2", None), ("Logistic L1 baseline", "l1", None), ("ElasticNet baseline", "elasticnet", .5)]:
-        model = make_linear_model(features, penalty, l1_ratio=ratio)
-        model.fit(xtr, ytr); models.append((name, model))
+        sample_positions = (
+            positions
+            if len(positions) <= 2000
+            else rng.choice(positions, size=2000, replace=False)
+        )
+        xs = x_test.iloc[sample_positions]
+        contrib = model.predict(xs, pred_contrib=True)[:, :-1]
+        mean_abs = np.abs(contrib).mean(axis=0)
+        sums = {
+            group: float(mean_abs[idx].sum())
+            for group, idx in group_indices.items()
+        }
+        total = sum(sums.values())
+        biome_name, biome_short = BIOME_NAMES.get(
+            biome, (f"BIOME {biome}", f"B{biome}")
+        )
+        for group, value in sums.items():
+            contribution_rows.append(
+                {
+                    "BIOME": biome,
+                    "biome_name": biome_name,
+                    "biome_short": biome_short,
+                    "feature_group": group,
+                    "mean_abs_shap_sum": value,
+                    "share_within_four_groups": value / total if total else np.nan,
+                    "shap_sample_n": len(sample_positions),
+                }
+            )
 
-    records, prediction = [], pd.DataFrame({"cell_id": df.loc[test, "cell_id"].to_numpy(), "date": df.loc[test, "date"].to_numpy(), "y": yt.to_numpy()})
-    for name, model in models:
-        pv = model.predict_proba(xv)[:,1]; pt = model.predict_proba(xt)[:,1]
-        threshold = choose_f1_threshold(yv, pv)
-        records.append((name, yt, pt, threshold)); prediction[name] = pt
-    prediction.to_parquet(OUT / "p1_test_predictions.parquet", index=False)
-    metrics = save_metric_table(records); plot_p1_comparison(metrics)
-    p1_official, p3 = plot_p3_scales()
-    tree_importance, triggers, groups = shap_outputs(tree, xt, features)
+        x_all = x_test.iloc[positions]
+        y = meta.iloc[positions]["y"].astype(int).to_numpy()
+        p = model.predict_proba(x_all)[:, 1]
+        pred = p >= threshold
+        top5_precision, top5_recall = _top_fraction_metrics(y, p, 0.05)
+        has_both_classes = np.unique(y).size == 2
+        performance_rows.append(
+            {
+                "BIOME": biome,
+                "biome_name": biome_name,
+                "biome_short": biome_short,
+                "test_n": len(y),
+                "fire_n": int(y.sum()),
+                "prevalence": float(y.mean()),
+                "AUPRC": average_precision_score(y, p) if y.sum() else np.nan,
+                "ROC_AUC": roc_auc_score(y, p) if has_both_classes else np.nan,
+                "Brier_score": brier_score_loss(y, p),
+                "F1": f1_score(y, pred, zero_division=0),
+                "Precision": precision_score(y, pred, zero_division=0),
+                "Recall": recall_score(y, pred, zero_division=0),
+                "Top_5pct_precision": top5_precision,
+                "Top_5pct_recall": top5_recall,
+                "threshold_from_2022_validation": threshold,
+            }
+        )
 
-    best_base = metrics.loc[metrics.Model != "LightGBM (depth-capped)"].sort_values("AUPRC", ascending=False).iloc[0]
-    tree_row = metrics.loc[metrics.Model == "LightGBM (depth-capped)"].iloc[0]
-    p3_drop = float(p3.loc[p3["Scale (km)"] == 100, "AUPRC"].iloc[0] - p3.loc[p3["Scale (km)"] == 10, "AUPRC"].iloc[0])
-    trigger_text = "\n".join(
-        f"- **{r.feature}**：从低十分位（{r['P10 value']:.3g}）到高十分位（{r['P90 value']:.3g}）时，平均 SHAP 变化为 {r.high_minus_low_SHAP:.3f}。"
-        for _, r in triggers.iterrows())
-    readme = f"""# LY 最终交付说明
+    contributions = pd.DataFrame(contribution_rows)
+    performance = pd.DataFrame(performance_rows)
+    contributions.to_csv(
+        DATA / "06_biome_shap_group_contributions.csv",
+        index=False,
+        float_format="%.8f",
+    )
+    performance.to_csv(
+        DATA / "06_biome_performance.csv",
+        index=False,
+        float_format="%.8f",
+    )
+    pd.DataFrame(
+        [
+            {"BIOME": biome, "biome_name": name, "biome_short": short}
+            for biome, (name, short) in BIOME_NAMES.items()
+        ]
+    ).to_csv(DATA / "06_biome_mapping.csv", index=False)
 
-## 协议与防泄漏
-P1 采用严格时间外推：2015–2021 训练、2022 验证、2023–2024 测试。模型输入仅为 `full_features.csv` 中的物理与历史特征；`cell_id`、所有空间阻断 ID、BIOME、STRATUM、日期、标签和抽样权重均未进入模型。LightGBM 最大深度固定为 5、树数固定为 500；F1 的操作阈值只由 2022 验证集确定，测试集不参与调参。
+    groups = list(FEATURE_GROUPS)
+    theta = np.linspace(0, 2 * np.pi, len(groups), endpoint=False)
+    theta_closed = np.r_[theta, theta[0]]
+    biomes = (
+        performance.loc[performance["BIOME"].ne(11)]
+        .sort_values("test_n", ascending=False)["BIOME"]
+        .astype(int)
+        .tolist()
+    )
+    ncols = 3
+    nrows = int(np.ceil(len(biomes) / ncols))
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(13.2, 4.1 * nrows),
+        subplot_kw={"polar": True},
+    )
+    axes = np.atleast_1d(axes).ravel()
+    for ax, biome in zip(axes, biomes):
+        subset = (
+            contributions.loc[contributions["BIOME"].eq(biome)]
+            .set_index("feature_group")
+            .reindex(groups)
+        )
+        values = subset["share_within_four_groups"].to_numpy(dtype=float)
+        closed = np.r_[values, values[0]]
+        ax.plot(theta_closed, closed, color="#C14924", lw=2)
+        ax.fill(theta_closed, closed, color="#C14924", alpha=0.20)
+        ax.set_xticks(theta)
+        ax.set_xticklabels(
+            ["Fire history", "Drought /\nmoisture", "Wind", "Vegetation"],
+            fontsize=8,
+        )
+        ax.set_ylim(0, max(0.55, np.nanmax(values) * 1.08))
+        ax.set_yticklabels([])
+        name = subset["biome_short"].dropna().iloc[0]
+        n = int(performance.loc[performance["BIOME"].eq(biome), "test_n"].iloc[0])
+        fires = int(performance.loc[performance["BIOME"].eq(biome), "fire_n"].iloc[0])
+        ax.set_title(f"{name} (BIOME {biome})\nn={n:,}, fires={fires}", pad=16)
+    for ax in axes[len(biomes) :]:
+        ax.set_visible(False)
+    fig.suptitle(
+        "BIOME-specific SHAP composition across four physical feature groups",
+        fontsize=14,
+        fontweight="bold",
+        y=1.01,
+    )
+    fig.text(
+        0.5,
+        0.01,
+        "Each panel sums to 100% across the four prespecified groups; "
+        "BIOME is used only for post-hoc grouping, never as a model input.",
+        ha="center",
+        fontsize=9,
+        color="#444444",
+    )
+    fig.tight_layout(rect=(0, 0.035, 1, 0.98))
+    _save(fig, "06_biome_shap_radar.png")
+    return contributions, performance
 
-## P1 树模型与线性基线
-最终树模型测试集 AUPRC 为 **{tree_row['AUPRC']:.4f}**，最佳线性基线（{best_base.Model}）为 **{best_base.AUPRC:.4f}**。完整的 AUPRC、ROC-AUC、Brier score、F1、Precision、Recall、Top-1/5/10% 命中指标及 100 次 Bootstrap 均值/标准差见 `01_p1_high_metrics.csv`。F1 阈值始终在 2022 验证集选定后固定应用于 2023–2024 测试集。
 
-## P3 多尺度泛化
-官方 P3 结果中，空间阻断尺度由 100 km 缩小至 10 km 时，AUPRC 从 0.2223 降至 0.2062，绝对下降 **{p3_drop:.4f}**（约 {p3_drop/0.22227477070901802:.1%}）；ROC-AUC 在 0.9435–0.9457 间基本稳定。这说明细尺度空间外推主要损失稀有起火样本的排序能力，因而需要重点关注局地气候/地貌组合与训练区域不同的网格。
+def main() -> None:
+    metrics = plot_tree_vs_baselines()
+    gaps = plot_p3_generalization_gap()
+    model, x_test, features, meta = _model_inputs()
+    plot_global_shap_and_dependence(model, x_test, features)
+    threshold = float(
+        metrics.loc[
+            metrics["Model"].astype(str).eq("LightGBM (depth-capped)"),
+            "Threshold (validation-selected)",
+        ].iloc[0]
+    )
+    contributions, performance = plot_biome_shap(
+        model, x_test, features, meta, threshold
+    )
 
-## 非线性触发机制归因
-{trigger_text}
-
-上述数值来自 P1 最终树模型 3,000 个测试样本的精确树 SHAP 贡献（LightGBM `pred_contrib`）。蜂群图用于判断重要性和方向；依赖图与 `05_nonlinear_trigger_summary.csv` 用于核验上述低/高状态差异。机制上，火历史体现燃料与火发生的时间记忆；持续干燥度（降水、VPD、土壤湿度、PET）调节燃料可燃性；风速/风向调节扩散条件；NDVI/EVI、树冠覆盖和土地覆盖反映燃料数量与连通性；地形和人类活动共同塑造局地微气候与点火机会。非线性关系由树模型直接学习，不能把单一变量的 SHAP 方向误解为独立因果效应。
-
-## 文件用途
-见本目录中的结果图、指标表、预测概率和 `p1_lgbm_strict_model.joblib`。该模型文件可供组内继续进行个例解释或预警制图。
-"""
-    (OUT / "README_LY_FINAL.md").write_text(readme, encoding="utf-8")
-    print(metrics[["Model", "AUPRC", "ROC-AUC", "Brier score", "F1", "Precision", "Recall", "Top-5% precision", "Top-5% recall"]].to_string(index=False))
-    print(f"Final outputs: {OUT}")
+    print("Generated CSV tables in:", DATA)
+    print("Generated figures in:", RESULTS)
+    print(
+        metrics[
+            ["Model", "AUPRC", "ROC-AUC", "Brier score", "F1"]
+        ].to_string(index=False)
+    )
+    print("\nP3 performance changes relative to P1:")
+    print(gaps.to_string(index=False))
+    print("\nBIOME SHAP rows:", len(contributions))
+    print(
+        performance[
+            ["BIOME", "biome_short", "test_n", "fire_n", "AUPRC", "Brier_score"]
+        ].to_string(index=False)
+    )
 
 
 if __name__ == "__main__":
-    main()
+    with warnings.catch_warnings():
+        warnings.simplefilter("default")
+        main()
