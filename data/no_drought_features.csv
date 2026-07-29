@@ -18,6 +18,18 @@ EVI_mean_mon_lag1
 LST_day_mon_lag1
 LST_night_mon_lag1
 NDVI_mean_mon_lag1
+RH_min_mon_lag1
+SM2_mean_mon_lag1
+TP_sum_mon_lag1
+Tmax_mon_lag1
+Tmean_mon_lag1
+VPD_max_mon_lag1
+WD_R_mon_lag1
+WD_u_mon_lag1
+WD_v_mon_lag1
+WS_max_mon_lag1
+WS_mean_mon_lag1
+WS_strong_frac_lag1
 EVI_mean_mon_cov_lag1
 EVI_mean_mon_missing_lag1
 LST_day_mon_cov_lag1
@@ -62,4 +74,6 @@ y_lag1
 y_lag12
 fire_count_12m
 months_since_last_fire
+P_sum_mon_lag1_roll3m_sum
+PET_sum_mon_lag1_roll3m_sum
 NDVI_mean_mon_lag1_roll3m_mean

@@ -10,10 +10,10 @@ dist_built_m
 dist_water_m
 elev_mean
 frac_crop
-frac_forest
 frac_grass
 slope_mean
-treecover_2015
+LST_day_mon_lag1
+LST_night_mon_lag1
 PET_sum_mon_lag1
 P_sum_mon_lag1
 RH_mean_mon_lag1
@@ -78,3 +78,4 @@ months_since_last_fire
 P_sum_mon_lag1_roll3m_sum
 PET_sum_mon_lag1_roll3m_sum
 VPD_mean_mon_lag1_roll3m_mean
+NDVI_mean_mon_lag1_roll3m_mean
