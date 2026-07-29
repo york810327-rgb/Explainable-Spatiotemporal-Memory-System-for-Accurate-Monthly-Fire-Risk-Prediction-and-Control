@@ -1,0 +1,37 @@
+BIOME,biome_name,biome_short,feature_group,mean_abs_shap_sum,share_within_four_groups,shap_sample_n
+1,Tropical & Subtropical Moist Broadleaf Forests,TSMBF,Fire history,0.19360416,0.10299496,2000
+1,Tropical & Subtropical Moist Broadleaf Forests,TSMBF,Drought / moisture,0.55410097,0.29477468,2000
+1,Tropical & Subtropical Moist Broadleaf Forests,TSMBF,Wind,0.36620124,0.19481441,2000
+1,Tropical & Subtropical Moist Broadleaf Forests,TSMBF,Vegetation,0.76583773,0.40741595,2000
+4,Temperate Broadleaf & Mixed Forests,TBMF,Fire history,0.18020284,0.09422942,2000
+4,Temperate Broadleaf & Mixed Forests,TBMF,Drought / moisture,0.53241704,0.27840486,2000
+4,Temperate Broadleaf & Mixed Forests,TBMF,Wind,0.24189327,0.12648780,2000
+4,Temperate Broadleaf & Mixed Forests,TBMF,Vegetation,0.95787103,0.50087793,2000
+5,Temperate Conifer Forests,TCF,Fire history,0.13008959,0.06697657,2000
+5,Temperate Conifer Forests,TCF,Drought / moisture,0.58845367,0.30296510,2000
+5,Temperate Conifer Forests,TCF,Wind,0.37252697,0.19179534,2000
+5,Temperate Conifer Forests,TCF,Vegetation,0.85124480,0.43826299,2000
+6,Boreal Forests / Taiga,BFT,Fire history,0.07325906,0.04133205,120
+6,Boreal Forests / Taiga,BFT,Drought / moisture,0.78426428,0.44247431,120
+6,Boreal Forests / Taiga,BFT,Wind,0.24361719,0.13744646,120
+6,Boreal Forests / Taiga,BFT,Vegetation,0.67131101,0.37874717,120
+8,"Temperate Grasslands, Savannas & Shrublands",TGSS,Fire history,0.25308020,0.12325676,2000
+8,"Temperate Grasslands, Savannas & Shrublands",TGSS,Drought / moisture,0.68383613,0.33304631,2000
+8,"Temperate Grasslands, Savannas & Shrublands",TGSS,Wind,0.26882245,0.13092365,2000
+8,"Temperate Grasslands, Savannas & Shrublands",TGSS,Vegetation,0.84753762,0.41277327,2000
+9,Flooded Grasslands & Savannas,FGS,Fire history,0.34660221,0.14572662,2000
+9,Flooded Grasslands & Savannas,FGS,Drought / moisture,0.80695076,0.33927715,2000
+9,Flooded Grasslands & Savannas,FGS,Wind,0.37201444,0.15641103,2000
+9,Flooded Grasslands & Savannas,FGS,Vegetation,0.85287379,0.35858519,2000
+10,Montane Grasslands & Shrublands,MGS,Fire history,0.14317622,0.08042747,2000
+10,Montane Grasslands & Shrublands,MGS,Drought / moisture,0.51730771,0.29059122,2000
+10,Montane Grasslands & Shrublands,MGS,Wind,0.27179229,0.15267596,2000
+10,Montane Grasslands & Shrublands,MGS,Vegetation,0.84791424,0.47630535,2000
+11,Unclassified / N/A,N/A,Fire history,0.10508225,0.05221698,1464
+11,Unclassified / N/A,N/A,Drought / moisture,0.76097653,0.37814091,1464
+11,Unclassified / N/A,N/A,Wind,0.33207856,0.16501493,1464
+11,Unclassified / N/A,N/A,Vegetation,0.81427788,0.40462717,1464
+13,Deserts & Xeric Shrublands,DXS,Fire history,0.12643504,0.06002403,2000
+13,Deserts & Xeric Shrublands,DXS,Drought / moisture,0.56831513,0.26980310,2000
+13,Deserts & Xeric Shrublands,DXS,Wind,0.26173276,0.12425555,2000
+13,Deserts & Xeric Shrublands,DXS,Vegetation,1.14992403,0.54591732,2000

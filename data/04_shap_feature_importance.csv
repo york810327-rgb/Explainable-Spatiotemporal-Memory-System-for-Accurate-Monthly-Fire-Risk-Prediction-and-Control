@@ -1,0 +1,16 @@
+feature,mean_abs_shap
+frac_crop,0.53896178
+elev_mean,0.38841662
+month_cos,0.37100434
+dist_built_m,0.35826309
+treecover_2015,0.31407805
+NDVI_mean_mon_lag1,0.28093222
+P_sum_mon_lag1_roll3m_sum,0.25280410
+LC_mode,0.23579944
+NDVI_mean_mon_lag1_roll3m_mean,0.22641954
+TP_sum_mon_lag1,0.19425466
+SM2_mean_mon_lag1,0.19345201
+EVI_mean_mon_lag1,0.18828932
+dist_water_m,0.18153074
+PET_sum_mon_lag1,0.17805770
+slope_mean,0.16840751

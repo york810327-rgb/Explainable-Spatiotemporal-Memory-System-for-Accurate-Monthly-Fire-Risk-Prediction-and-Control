@@ -1,0 +1,10 @@
+BIOME,biome_name,biome_short
+1,Tropical & Subtropical Moist Broadleaf Forests,TSMBF
+4,Temperate Broadleaf & Mixed Forests,TBMF
+5,Temperate Conifer Forests,TCF
+6,Boreal Forests / Taiga,BFT
+8,"Temperate Grasslands, Savannas & Shrublands",TGSS
+9,Flooded Grasslands & Savannas,FGS
+10,Montane Grasslands & Shrublands,MGS
+11,Unclassified / N/A,N/A
+13,Deserts & Xeric Shrublands,DXS

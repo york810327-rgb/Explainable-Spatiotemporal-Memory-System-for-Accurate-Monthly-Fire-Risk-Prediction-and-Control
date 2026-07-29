@@ -1,4 +1,0 @@
-feature,P10 value,P90 value,mean SHAP at low decile,mean SHAP at high decile,high_minus_low_SHAP
-months_since_last_fire,42.90000000,120.00000000,0.49472115,-0.10490644,-0.59962759
-VPD_mean_mon_lag1_roll3m_mean,0.14565844,1.20665187,0.41160730,0.08525593,-0.32635137
-P_sum_mon_lag1_roll3m_sum,11.97600041,418.28254825,-0.09277654,-0.64932542,-0.55654889
