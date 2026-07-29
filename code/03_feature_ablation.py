@@ -6,7 +6,7 @@ from pathlib import Path
 # 1. Read data
 # =========================
 
-data_path = "./data/lead1_F1_wgrid50_100.parquet"
+data_path = "../data/lead1_F1_wgrid50_100.parquet"
 
 df = pd.read_parquet(data_path)
 
@@ -90,32 +90,10 @@ drought_features = [
 
     "PET_sum_mon_lag1",
     "P_sum_mon_lag1",
-
-    "RH_mean_mon_lag1",
-    "RH_min_mon_lag1",
-
-    "SM1_mean_mon_lag1",
-    "SM2_mean_mon_lag1",
-
-    "TP_sum_mon_lag1",
-
-    "Tmax_mon_lag1",
-    "Tmean_mon_lag1",
-
-    "VPD_max_mon_lag1",
     "VPD_mean_mon_lag1",
-
-    "WD_R_mon_lag1",
-    "WD_u_mon_lag1",
-    "WD_v_mon_lag1",
-
-    "WS_max_mon_lag1",
-    "WS_mean_mon_lag1",
-    "WS_strong_frac_lag1",
-
-    "P_sum_mon_lag1_roll3m_sum",
-    "PET_sum_mon_lag1_roll3m_sum",
     "VPD_mean_mon_lag1_roll3m_mean",
+    "SM1_mean_mon_lag1",
+    "RH_mean_mon_lag1",
 
 ]
 
@@ -123,15 +101,10 @@ drought_features = [
 # Vegetation
 vegetation_features = [
 
-    "EVI_mean_mon_lag1",
-
-    "LST_day_mon_lag1",
-
-    "LST_night_mon_lag1",
-
     "NDVI_mean_mon_lag1",
-
-    "NDVI_mean_mon_lag1_roll3m_mean",
+    "EVI_mean_mon_lag1",
+    "treecover_2015",
+    "frac_forest",
 
 ]
 
@@ -168,7 +141,7 @@ for name, cols in groups.items():
 # =========================
 
 
-output_dir = Path("./data")
+output_dir = Path("../data")
 
 output_dir.mkdir(
     exist_ok=True
