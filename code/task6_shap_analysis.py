@@ -114,10 +114,16 @@ plt.rcParams.update(
     {
         "figure.dpi": 130,
         "savefig.dpi": 300,
+        "font.family": "DejaVu Sans",
+        "font.size": 9,
         "axes.titleweight": "bold",
         "axes.labelsize": 10,
         "axes.titlesize": 11,
+        "axes.linewidth": 0.8,
         "legend.fontsize": 8,
+        "legend.frameon": False,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
     }
 )
 
@@ -141,7 +147,7 @@ def plot_tree_vs_baselines() -> pd.DataFrame:
         ("Brier score", "lower is better"),
     ]
     fig, axes = plt.subplots(1, 4, figsize=(14.2, 4.3))
-    for ax, (metric, direction) in zip(axes, specs):
+    for panel, (ax, (metric, direction)) in enumerate(zip(axes, specs)):
         values = metrics[metric].astype(float).to_numpy()
         names = metrics["Model"].astype(str).tolist()
         bars = ax.bar(
@@ -160,7 +166,11 @@ def plot_tree_vs_baselines() -> pd.DataFrame:
                 va="bottom",
                 fontsize=8,
             )
-        ax.set_title(f"{metric}\n{direction}", fontsize=10)
+        ax.set_title(
+            f"({chr(97 + panel)}) {metric}\n{direction}",
+            fontsize=10,
+            loc="left",
+        )
         ax.set_xticks(range(len(metrics)))
         ax.set_xticklabels(
             [MODEL_LABELS[name] for name in names], rotation=32, ha="right"
@@ -230,7 +240,9 @@ def plot_p3_generalization_gap() -> pd.DataFrame:
 
     fig, axes = plt.subplots(1, 3, figsize=(14.2, 4.5))
     scales = p3["Scale_km"].to_numpy()
-    for ax, (col, label, higher_better) in zip(axes, metric_specs):
+    for panel, (ax, (col, label, higher_better)) in enumerate(
+        zip(axes, metric_specs)
+    ):
         scores = p3[col].astype(float).to_numpy()
         reference = float(p1[col])
         ax.plot(scales, scores, marker="o", lw=2.4, color="#C14924")
@@ -249,7 +261,11 @@ def plot_p3_generalization_gap() -> pd.DataFrame:
         values = np.r_[scores, reference]
         spread = max(values.max() - values.min(), 0.001)
         ax.set_ylim(values.min() - 0.22 * spread, values.max() + 0.25 * spread)
-        ax.set_title(f"{label}\n({'higher' if higher_better else 'lower'} is better)")
+        ax.set_title(
+            f"({chr(97 + panel)}) {label}\n"
+            f"({'higher' if higher_better else 'lower'} is better)",
+            loc="left",
+        )
         ax.set_xlabel("Spatial blocking scale (km)")
         ax.set_xticks(scales)
         ax.set_ylabel("Score")
@@ -527,7 +543,7 @@ def plot_biome_shap(
         subplot_kw={"polar": True},
     )
     axes = np.atleast_1d(axes).ravel()
-    for ax, biome in zip(axes, biomes):
+    for panel, (ax, biome) in enumerate(zip(axes, biomes)):
         subset = (
             contributions.loc[contributions["BIOME"].eq(biome)]
             .set_index("feature_group")
@@ -535,19 +551,28 @@ def plot_biome_shap(
         )
         values = subset["share_within_four_groups"].to_numpy(dtype=float)
         closed = np.r_[values, values[0]]
-        ax.plot(theta_closed, closed, color="#C14924", lw=2)
-        ax.fill(theta_closed, closed, color="#C14924", alpha=0.20)
+        ax.plot(theta_closed, closed, color="#C14924", lw=2.1)
+        ax.fill(theta_closed, closed, color="#E76F51", alpha=0.22)
         ax.set_xticks(theta)
         ax.set_xticklabels(
             ["Fire history", "Drought /\nmoisture", "Wind", "Vegetation"],
             fontsize=8,
         )
-        ax.set_ylim(0, max(0.55, np.nanmax(values) * 1.08))
-        ax.set_yticklabels([])
+        # A fixed radial scale is essential for valid cross-BIOME comparison.
+        ax.set_ylim(0, 0.60)
+        ax.set_yticks([0.15, 0.30, 0.45, 0.60])
+        ax.set_yticklabels(["15%", "30%", "45%", "60%"], fontsize=6.5)
+        ax.set_rlabel_position(45)
+        ax.grid(color="#C8C8C8", lw=0.7)
         name = subset["biome_short"].dropna().iloc[0]
         n = int(performance.loc[performance["BIOME"].eq(biome), "test_n"].iloc[0])
         fires = int(performance.loc[performance["BIOME"].eq(biome), "fire_n"].iloc[0])
-        ax.set_title(f"{name} (BIOME {biome})\nn={n:,}, fires={fires}", pad=16)
+        ax.set_title(
+            f"({chr(97 + panel)}) {name} (BIOME {biome})\n"
+            f"n={n:,}, fires={fires}",
+            pad=16,
+            loc="left",
+        )
     for ax in axes[len(biomes) :]:
         ax.set_visible(False)
     fig.suptitle(
