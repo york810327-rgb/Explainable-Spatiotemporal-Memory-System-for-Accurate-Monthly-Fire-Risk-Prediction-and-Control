@@ -1,0 +1,53 @@
+\section{Feature Ablation Analysis of the LightGBM Model}
+
+To further evaluate the contribution of different physical process variables to wildfire prediction performance, a feature ablation experiment was conducted based on the LightGBM model.
+
+The full-feature model contained 84 physical predictor variables and achieved an overall performance of AUPRC = 0.216253, ROC-AUC = 0.945749, and Brier Score = 0.046531 on the 2022 temporal holdout validation set.
+
+The ablation results demonstrate that different physical information sources have distinct impacts on model predictive capability.
+
+
+\subsection{Impact of Fire History Features on Prediction Performance}
+
+Removing fire history features resulted in the most substantial performance degradation.
+
+The AUPRC decreased from 0.216253 to 0.148382, corresponding to a reduction of 0.067871.
+
+This significant decline indicates that wildfire occurrence exhibits strong spatiotemporal memory effects, and historical fire information provides essential predictive signals for future wildfire risks.
+
+The fire history variables used in this study, including previous fire occurrence lags, 12-month fire counts, and time since the last fire event, characterize persistent effects caused by historical disturbances, fuel condition changes, and ecological recovery processes.
+
+Therefore, current environmental and climatic conditions alone cannot fully replace historical fire information. Wildfire prediction is not only a problem of environmental state recognition but also involves strong temporal dependency and spatial persistence.
+
+
+\subsection{Impact of Vegetation Variables on Model Performance}
+
+Removing vegetation-related variables resulted in only a slight decrease in performance.
+
+The AUPRC decreased by 0.002215, indicating that vegetation conditions provide additional predictive information but have relatively limited independent contributions.
+
+This may be because vegetation variables, including NDVI, EVI, and forest coverage, mainly represent long-term fuel availability conditions.
+
+Meanwhile, vegetation stress signals induced by environmental changes may already be partially captured by climatic and moisture-related variables.
+
+Therefore, the LightGBM model can maintain relatively stable prediction performance using other environmental predictors after removing vegetation variables.
+
+
+\subsection{Impact of Drought Variables on Model Performance}
+
+Interestingly, removing drought-related variables slightly improved the prediction performance, with an AUPRC increase of 0.007634.
+
+This result does not indicate that drought conditions are unimportant for wildfire formation. Instead, it may reflect the effects of feature redundancy and model complexity.
+
+On the one hand, drought impacts wildfire risk through processes such as reduced soil moisture, enhanced atmospheric dryness, and vegetation stress. Vegetation conditions may therefore serve as an integrated proxy of drought-related ecological responses.
+
+On the other hand, under the constrained tree depth of the LightGBM model, highly correlated drought variables may increase the searching space and introduce redundant information.
+
+Consequently, removing some drought-related variables slightly improved model generalization performance.
+
+
+\subsection{Conclusion}
+
+Overall, the ablation experiment confirms the dominant role of fire history information in wildfire prediction.
+
+Meanwhile, vegetation and climatic variables mainly provide environmental background constraints, and multi-source physical predictors exhibit both complementary information and certain redundancy.
